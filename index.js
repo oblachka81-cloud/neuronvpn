@@ -1,18 +1,6 @@
-const { execSync } = require('child_process');
 const { Bot } = require('grammy');
+const prisma = require('./db'); // <-- Импортируем твой db.js
 require('dotenv').config();
-
-// Генерируем Prisma Client при старте
-try {
-  console.log('🔄 Генерация Prisma Client...');
-  execSync('npx prisma generate', { stdio: 'inherit' });
-  console.log('✅ Prisma Client сгенерирован');
-} catch (error) {
-  console.error('❌ Ошибка генерации Prisma:', error.message);
-}
-
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
 
 const bot = new Bot(process.env.BOT_TOKEN);
 
@@ -37,23 +25,23 @@ bot.command('start', async (ctx) => {
       
       await ctx.reply(
         `👋 *Привет, ${username || 'студент'}!*\n\n` +
-        `Я тебя запомнил в базе данных.\n` +
-        `Твой ID: \`${telegramId}\``
+        `✅ Я тебя запомнил в базе.\n` +
+        `📱 Твой ID: \`${telegramId}\``
       );
     } else {
       await ctx.reply(
-        `*С возвращением, ${username || 'студент'}!*\n\n` +
-        `Ты уже в системе.`
+        `*С возвращением!* 👋\n\n` +
+        `✅ Ты уже в системе.`
       );
     }
   } catch (error) {
     console.error('Ошибка БД:', error);
-    await ctx.reply('⚠️ Ошибка подключения к базе данных.');
+    await ctx.reply('⚠️ Ошибка подключения к БД.');
   }
 });
 
 bot.command('help', async (ctx) => {
-  await ctx.reply('📚 *Помощь*\n\nСкоро здесь появится инструкция.');
+  await ctx.reply('📚 *Помощь*\n\nСкоро инструкция.');
 });
 
 process.on('beforeExit', async () => {
@@ -62,5 +50,5 @@ process.on('beforeExit', async () => {
 
 console.log('✅ NEURON VPN Bot запускается...');
 bot.start().catch((err) => {
-  console.error('❌ Ошибка запуска бота:', err);
+  console.error('❌ Ошибка:', err);
 });
