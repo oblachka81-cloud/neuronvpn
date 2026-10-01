@@ -1,0 +1,13 @@
+{
+  "name": "neuron-vpn",
+  "version": "1.0.0",
+  "description": "NEURON VPN Manager",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "grammy": "^1.35.0",
+    "dotenv": "^16.4.0"
+  }
+}
