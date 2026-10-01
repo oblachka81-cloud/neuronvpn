@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "postinstall": "prisma generate"
+    "start": "node index.js"
   },
   "dependencies": {
     "grammy": "^1.35.0",
