@@ -34,7 +34,12 @@ async function login() {
                 password: PANEL_CONFIG.password
             }),
             {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    // Маскируемся под браузер, чтобы обойти базовые проверки WAF/Fail2ban
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Referer': `${PANEL_CONFIG.baseUrl}${PANEL_CONFIG.basePath}/login`
+                },
                 httpsAgent: agent
             }
         );
