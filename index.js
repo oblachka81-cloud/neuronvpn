@@ -84,6 +84,50 @@ app.get('/health', (req, res) => {
     });
 });
 
+// === ЭНДПОИНТ РЕГИСТРАЦИИ ПОЛЬЗОВАТЕЛЯ ===
+app.post('/api/register', async (req, res) => {
+    const { email, password, fullName } = req.body;
+
+    // Простая проверка входных данных
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email и пароль обязательны' });
+    }
+
+    try {
+        // Проверяем, нет ли уже такого пользователя
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (existingUser) {
+            return res.status(409).json({ error: 'Пользователь с таким email уже существует' });
+        }
+
+        // !!! ВАЖНО !!! В продакшене здесь должен быть bcrypt.hash(password, saltRounds)
+        // Но для MVP/теста сохраним пароль как есть (НЕ ДЕЛАЙ ТАК НА РЕАЛЬНОМ ПРОЕКТЕ!)
+        const hashedPassword = password; 
+
+        // Создаем нового пользователя в базе
+        const newUser = await prisma.user.create({
+            data: {
+                email,
+                password: hashedPassword,
+                fullName: fullName || null
+            }
+        });
+
+        console.log(`✅ Новый пользователь зарегистрирован: ${newUser.email}`);
+        
+        // Возвращаем ответ клиенту (без пароля!)
+        res.status(201).json({ 
+            message: 'Регистрация успешна', 
+            user: { id: newUser.id, email: newUser.email } 
+        });
+
+    } catch (error) {
+        console.error('❌ Ошибка при регистрации:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+// ==========================================
+
 // Запускаем сервер на порту из переменных окружения (BotHost дает PORT автоматически)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
