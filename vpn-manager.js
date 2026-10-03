@@ -1,123 +1,83 @@
-// vpn-manager.js
 const axios = require('axios');
 const https = require('https');
 require('dotenv').config();
 
-// Конфигурация из переменных окружения (.env на BotHost)
+// Конфигурация из .env
 const PANEL_CONFIG = {
-    baseUrl: process.env.VPN_PANEL_URL,
-    basePath: process.env.VPN_BASE_PATH,
-    username: process.env.VPN_USERNAME,
-    password: process.env.VPN_PASSWORD,
+    baseUrl: process.env.VPN_PANEL_URL, // https://ip:port
+    basePath: process.env.VPN_BASE_PATH, // /path.../
+    apiToken: process.env.VPN_API_TOKEN, // <=== ТОКЕН ИЗ ШАГА 1
     inboundId: parseInt(process.env.VPN_INBOUND_ID || '1', 10)
 };
 
-// Проверка наличия всех необходимых переменных
-if (!PANEL_CONFIG.baseUrl || !PANEL_CONFIG.username || !PANEL_CONFIG.password) {
-    throw new Error('❌ [VPN Manager] Не хватает переменных VPN_* в .env');
+if (!PANEL_CONFIG.apiToken) {
+    throw new Error('❌ [VPN Manager] Не задан VPN_API_TOKEN в .env!');
 }
 
-// Агент для игнорирования ошибок SSL (сертификат Let's Encrypt для IP может быть неполным)
+// Агент для игнорирования ошибок SSL (самоподписанный сертификат)
 const agent = new https.Agent({ rejectUnauthorized: false });
 
-let sessionCookie = null; // Храним куки авторизации между запросами
-
 /**
- * Авторизация в панели 3x-ui
- */
-async function login() {
-    // Правильно склеиваем базовый URL и путь логина
-    // Используем new URL(), чтобы браузер/Node сам разобрал адреса без ошибок
-    const loginUrl = new URL(`${PANEL_CONFIG.basePath}/login`, PANEL_CONFIG.baseUrl).toString();
-    
-    console.log(`🔗 [VPN Manager] Пытаюсь войти по адресу: ${loginUrl}`); // <=== ЛОГИРУЕМ АДРЕС ДЛЯ ПРОВЕРКИ
-
-    try {
-        const response = await axios.post(loginUrl, 
-            new URLSearchParams({
-                username: PANEL_CONFIG.username,
-                password: PANEL_CONFIG.password
-            }),
-            {
-                headers: { 
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                httpsAgent: agent // Даже для http:// этот агент просто проигнорирует проверку, не сломает код
-            }
-        );
-
-        if (response.data.success && response.headers['set-cookie']) {
-            sessionCookie = response.headers['set-cookie'].map(c => c.split(';')[0]).join('; ');
-            console.log('✅ [VPN Manager] Вход выполнен успешно');
-            return true;
-        } else {
-            throw new Error(response.data.msg || 'Неизвестная ошибка авторизации');
-        }
-    } catch (error) {
-        // Логируем полную ошибку, включая стектрейс, если нужно
-        console.error('❌ [VPN Manager] Детальная ошибка входа:', error.message);
-        if(error.config) console.error('URL был:', error.config.url);
-        sessionCookie = null;
-        return false;
-    }
-}
-
-/**
- * Создание нового клиента в панели 3x-ui
- * @param {string} email - Email или идентификатор пользователя
- * @param {number} limitGB - Лимит трафика в ГБ
- * @param {Date} expiryDate - Дата окончания подписки
- * @returns {Promise<{success: boolean, uuid: string, link: string}>}
+ * Создание клиента через API Token (без логина!)
  */
 async function createClient(email, limitGB = 100, expiryDate) {
-    // Если нет активной сессии — логинимся заново
-    if (!sessionCookie) {
-        const loggedIn = await login();
-        if (!loggedIn) throw new Error('Не удалось войти в панель для создания клиента');
-    }
-
-    const uuid = crypto.randomUUID(); // Генерируем уникальный ID для VLESS/VMess
+    const uuid = crypto.randomUUID();
     
-    const payload = {
+    // Формируем данные клиента строго по формату 3x-ui
+    // Важно: totalGB должен быть в БАЙТАХ
+    const bytesLimit = limitGB * 1024 * 1024 * 1024; 
+    const expiryMs = expiryDate.getTime(); 
+
+    const clientData = {
         id: uuid,
-        remark: `${email} | ${limitGB}GB`,
+        email: email,
+        remark: `${email}`,
         enable: true,
-        expiryTime: Math.floor(expiryDate.getTime() / 1000), // Unix timestamp в секундах
-        totalGB: limitGB,
-        limitIp: 1, // Одно устройство одновременно
-        reset: 0
+        expiryTime: expiryMs,
+        totalGB: bytesLimit,
+        limitIp: 1,
+        reset: 0,
+        flow: "",
+        tgId: "",
+        subId: ""
     };
 
     try {
+        console.log(`🔄 [VPN Manager] Создаю клиента ${email} через API Token...`);
+        
+        // Отправляем запрос сразу с заголовком Authorization
         const response = await axios.post(
-            `${PANEL_CONFIG.baseUrl}${PANEL_CONFIG.basePath}/panel/api/inbounds/addClient/${PANEL_CONFIG.inboundId}`,
-            payload,
+            `${PANEL_CONFIG.baseUrl}${PANEL_CONFIG.basePath}panel/api/inbounds/addClient`,
             {
-                headers: { Cookie: sessionCookie },
+                id: PANEL_CONFIG.inboundId,
+                settings: JSON.stringify({ clients: [clientData] })
+            },
+            {
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${PANEL_CONFIG.apiToken}` // <=== МАГИЯ ЗДЕСЬ
+                },
                 httpsAgent: agent
             }
         );
 
         if (response.data.success) {
-            console.log(`✅ [VPN Manager] Клиент создан в панели: ${email}`);
+            console.log(`✅ [VPN Manager] Клиент создан успешно.`);
             
-            // Формируем ссылку vless://...
-            // Примечание: Порт 443 и security=tls предполагают стандартные настройки инбаунда.
-            // Если у тебя другой порт или протокол — нужно будет скорректировать эту строку.
+            // Генерируем ссылку VLESS
             const hostPart = PANEL_CONFIG.baseUrl.replace(/^https?:\/\//, '').split(':')[0];
-            const link = `vless://${uuid}@${hostPart}:443?security=tls&type=tcp&sni=${hostPart}&pbk=&fp=randomized#${encodeURIComponent(email)}`;
+            const portPart = PANEL_CONFIG.baseUrl.split(':').pop(); 
+            
+            const link = `vless://${uuid}@${hostPart}:${portPart}?security=tls&type=tcp&sni=${hostPart}&fp=randomized#${encodeURIComponent(email)}`;
             
             return { success: true, uuid, link };
         } else {
-            throw new Error(response.data.msg);
+             throw new Error(response.data.msg || 'Неизвестная ошибка панели');
         }
     } catch (error) {
-        console.error('❌ [VPN Manager] Ошибка создания клиента:', error.response?.data || error.message);
-        // При ошибке сбрасываем cookie, чтобы следующая попытка залогинилась заново
-        sessionCookie = null;
-        throw error;
+         console.error('❌ [VPN Manager] Ошибка создания:', error.response?.data || error.message);
+         throw error;
     }
 }
 
-module.exports = { login, createClient };
+module.exports = { createClient };
