@@ -1,9 +1,10 @@
 const { execSync } = require('child_process');
 require('dotenv').config();
 
-// === НОВЫЕ ИМПОРТЫ ДЛЯ СЕРВЕРА ===
+// === ИМПОРТЫ ДЛЯ СЕРВЕРА ===
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken'); // <=== ДОБАВИЛИ JWT
 // =================================
 
 console.log('🚀 Запуск NEURON VPN...');
@@ -74,6 +75,14 @@ const app = express();
 app.use(express.json()); // Разбираем JSON тела запросов
 app.use(cors());         // Разрешаем кросс-доменные запросы (для сайта/APK)
 
+// Читаем секрет из .env. Если его нет — роняем сервер, чтобы не работать небезопасно
+const JWT_SECRET = process.env.JWT_SECRET; 
+
+if (!JWT_SECRET) {
+    console.error('❌ КРИТИЧЕСКАЯ ОШИБКА: Переменная JWT_SECRET не найдена в .env!');
+    process.exit(1);
+}
+
 // Эндпоинт проверки здоровья
 app.get('/health', (req, res) => {
     console.log('📡 GET /health вызван');
@@ -127,6 +136,52 @@ app.post('/api/register', async (req, res) => {
     }
 });
 // ==========================================
+
+// === ЭНДПОИНТ ЛОГИНА (НОВЫЙ) ===
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email и пароль обязательны' });
+    }
+
+    try {
+        // 1. Ищем пользователя по email
+        const user = await prisma.user.findUnique({ where: { email } });
+        
+        if (!user) {
+            return res.status(401).json({ error: 'Неверный email или пароль' });
+        }
+
+        // 2. Проверяем пароль 
+        // (Пока сравниваем напрямую, так как мы не хэшировали при регистрации)
+        if (user.password !== password) {
+             return res.status(401).json({ error: 'Неверный email или пароль' });
+        }
+
+        // 3. Генерируем токен (срок жизни 7 дней)
+        const token = jwt.sign(
+            { userId: user.id, email: user.email }, 
+            JWT_SECRET, 
+            { expiresIn: '7d' }
+        );
+
+        console.log(`✅ Успешный логин: ${user.email}`);
+
+        // 4. Возвращаем токен клиенту
+        res.json({ 
+            message: 'Вход выполнен успешно',
+            token: token,
+            user: { id: user.id, email: user.email }
+        });
+
+    } catch (error) {
+        console.error('❌ Ошибка при логине:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+// ======================
+
 
 // Запускаем сервер на порту из переменных окружения (BotHost дает PORT автоматически)
 const PORT = process.env.PORT || 3000;
