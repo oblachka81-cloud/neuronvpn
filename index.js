@@ -180,7 +180,95 @@ app.post('/api/login', async (req, res) => {
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
 });
-// ======================
+
+// === ИМПОРТ МОДУЛЯ УПРАВЛЕНИЯ ПАНЕЛЬЮ ===
+const vpnManager = require('./vpn-manager'); 
+// =========================================
+
+// Middleware для проверки JWT токена
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Формат "Bearer TOKEN"
+
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403); // Токен невалиден или истек
+        req.user = user; // Сохраняем данные юзера в запрос
+        next();
+    });
+}
+
+// === ЭНДПОИНТ ПОЛУЧЕНИЯ КОНФИГА VPN (ЗАЩИЩЕННЫЙ) ===
+app.get('/api/get-vpn-config', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId; // ID пользователя из токена
+
+        // 1. Проверяем, есть ли у него активная подписка в нашей базе
+        let subscription = await prisma.subscription.findFirst({
+            where: { userId: userId, isActive: true }
+        });
+
+        // Если подписки нет — создаем тестовую (для MVP). 
+        // В реальном проекте здесь должна быть проверка оплаты!
+        if (!subscription) {
+            console.log(`⚠️ У юзера ${userId} нет подписки. Создаем временную...`);
+            subscription = await prisma.subscription.create({
+                data: {
+                    userId: userId,
+                    trafficLimit: 10n, // 10 ГБ (BigInt)
+                    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 дней
+                    isActive: true
+                }
+            });
+        }
+
+        // 2. Если в панели еще нет клиента для этой подписки — создаем его
+        if (!subscription.panelClientId) {
+            console.log(`🔄 Создаем клиента в панели 3x-ui для юзера ${userId}...`);
+            
+            // Вызываем наш модуль
+            const result = await vpnManager.createClient(
+                `user_${userId}`, // Email/Remark
+                Number(subscription.trafficLimit), // Лимит ГБ
+                subscription.expiresAt // Дата окончания
+            );
+
+            if (result.success) {
+                // Обновляем запись в нашей базе, сохраняя UUID из панели
+                await prisma.subscription.update({
+                    where: { id: subscription.id },
+                    data: { panelClientId: result.uuid }
+                });
+                
+                console.log(`✅ Клиент создан в панели. UUID: ${result.uuid}`);
+            } else {
+                throw new Error('Не удалось создать клиента в панели');
+            }
+        }
+
+        // 3. Формируем итоговую ссылку vless://... для отправки клиенту
+        // Берем настройки из env, чтобы не хардкодить IP
+        const hostPart = process.env.VPN_PANEL_URL.replace(/^https?:\/\//, '').split(':')[0];
+        const finalLink = `vless://${subscription.panelClientId}@${hostPart}:443?security=tls&type=tcp&sni=${hostPart}&fp=randomized#NEURON_VPN_User_${userId}`;
+
+        console.log(`🎉 Конфиг сгенерирован для юзера ${userId}`);
+
+        res.json({
+            status: 'success',
+            config_link: finalLink,
+            info: {
+                traffic_limit_gb: Number(subscription.trafficLimit),
+                expires_at: subscription.expiresAt.toISOString()
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Ошибка при выдаче конфига:', error);
+        res.status(500).json({ error: 'Ошибка генерации конфигурации VPN', details: error.message });
+    }
+});
+// ====================================================
 
 
 // Запускаем сервер на порту из переменных окружения (BotHost дает PORT автоматически)
