@@ -7,23 +7,30 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Student {
-  id           Int      @id @default(autoincrement())
-  telegramId   BigInt   @unique
-  username     String?
-  fullName     String?
-  createdAt    DateTime @default(now())
-  vpnAccount   VpnAccount?
+// Модель Пользователя (вместо Student)
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique // Логин для входа
+  password  String           // Хэш пароля (bcrypt)
+  fullName  String?          // Имя для отображения
+  
+  // Связь с подписками
+  subscriptions Subscription[]
+  
+  createdAt DateTime @default(now())
 }
 
-model VpnAccount {
-  id           Int      @id @default(autoincrement())
-  studentId    Int      @unique
-  student      Student  @relation(fields: [studentId], references: [id])
-  email        String   @unique
-  trafficLimit BigInt   
-  trafficUsed  BigInt   @default(0)
-  expiresAt    DateTime
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
+// Модель Подписки/Аккаунта в VPN панели
+model Subscription {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id])
+  
+  panelClientId String?  // UUID клиента внутри 3x-ui (чтобы обновлять срок)
+  trafficLimit  BigInt   @default(0) // Лимит ГБ
+  trafficUsed   BigInt   @default(0) // Потреблено ГБ
+  expiresAt     DateTime // Дата окончания доступа
+  
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
 }
