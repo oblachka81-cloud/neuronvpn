@@ -1,6 +1,11 @@
 const { execSync } = require('child_process');
 require('dotenv').config();
 
+// === НОВЫЕ ИМПОРТЫ ДЛЯ СЕРВЕРА ===
+const express = require('express');
+const cors = require('cors');
+// =================================
+
 console.log('🚀 Запуск NEURON VPN...');
 
 // ШАГ 1: Генерируем Prisma Client ПЕРЕД тем, как его импортировать
@@ -61,6 +66,29 @@ bot.command('help', async (ctx) => {
 process.on('beforeExit', async () => {
   await prisma.$disconnect();
 });
+
+// === СОЗДАНИЕ API СЕРВЕРА (HTTP) ===
+const app = express();
+
+app.use(express.json()); // Разбираем JSON тела запросов
+app.use(cors());         // Разрешаем кросс-доменные запросы (для сайта/APK)
+
+// Эндпоинт проверки здоровья
+app.get('/health', (req, res) => {
+    console.log('📡 GET /health вызван');
+    res.status(200).json({ 
+        status: 'OK', 
+        service: 'NEURON VPN Backend',
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Запускаем сервер на порту из переменных окружения (BotHost дает PORT автоматически)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🌐 HTTP Server запущен на порту ${PORT}`);
+});
+// ================================
 
 console.log('✅ Бот успешно запущен и слушает команды!');
 bot.start().catch((err) => {
