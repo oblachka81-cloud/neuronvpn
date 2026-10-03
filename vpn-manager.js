@@ -26,9 +26,14 @@ let sessionCookie = null; // Храним куки авторизации меж
  * Авторизация в панели 3x-ui
  */
 async function login() {
+    // Правильно склеиваем базовый URL и путь логина
+    // Используем new URL(), чтобы браузер/Node сам разобрал адреса без ошибок
+    const loginUrl = new URL(`${PANEL_CONFIG.basePath}/login`, PANEL_CONFIG.baseUrl).toString();
+    
+    console.log(`🔗 [VPN Manager] Пытаюсь войти по адресу: ${loginUrl}`); // <=== ЛОГИРУЕМ АДРЕС ДЛЯ ПРОВЕРКИ
+
     try {
-        const response = await axios.post(
-            `${PANEL_CONFIG.baseUrl}${PANEL_CONFIG.basePath}/login`, 
+        const response = await axios.post(loginUrl, 
             new URLSearchParams({
                 username: PANEL_CONFIG.username,
                 password: PANEL_CONFIG.password
@@ -36,23 +41,23 @@ async function login() {
             {
                 headers: { 
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    // Маскируемся под браузер, чтобы обойти базовые проверки WAF/Fail2ban
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Referer': `${PANEL_CONFIG.baseUrl}${PANEL_CONFIG.basePath}/login`
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 },
-                httpsAgent: agent
+                httpsAgent: agent // Даже для http:// этот агент просто проигнорирует проверку, не сломает код
             }
         );
 
         if (response.data.success && response.headers['set-cookie']) {
             sessionCookie = response.headers['set-cookie'].map(c => c.split(';')[0]).join('; ');
-            console.log('✅ [VPN Manager] Вход в панель 3x-ui выполнен');
+            console.log('✅ [VPN Manager] Вход выполнен успешно');
             return true;
         } else {
             throw new Error(response.data.msg || 'Неизвестная ошибка авторизации');
         }
     } catch (error) {
-        console.error('❌ [VPN Manager] Ошибка входа:', error.message);
+        // Логируем полную ошибку, включая стектрейс, если нужно
+        console.error('❌ [VPN Manager] Детальная ошибка входа:', error.message);
+        if(error.config) console.error('URL был:', error.config.url);
         sessionCookie = null;
         return false;
     }
