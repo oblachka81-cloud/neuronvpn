@@ -53,7 +53,7 @@ async function createClient(email, limitGB = 100, expiryDate) {
             expiryTime: expiryMs, 
             totalGB: bytesLimit,
             limitIp: 1,
-            flow: "", // Поток задается на уровне инбаунда или в ссылке, здесь оставляем пусто/дефолт
+            flow: "xtls-rprx-vision", // ОБЯЗАТЕЛЬНО для Reality+TCP
             tgId: 0,  // ЧИСЛО, а не строка!
             subId: "",
             comment: `NEURON ${email}`,
