@@ -45,7 +45,7 @@ async function createClient(email, limitGB = 100, expiryDate) {
             totalGB: bytesLimit,
             limitIp: 1,
             flow: "",
-            tgId: "",
+            tgId: 0,
             subId: "",
             comment: `NEURON ${email}`,
             reset: 0
