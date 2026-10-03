@@ -11,7 +11,8 @@
     "dotenv": "^16.4.0",
     "express": "^4.19.2",
     "cors": "^2.8.5",
-    "axios": "^1.7.2"
+    "axios": "^1.7.2",
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
     "prisma": "^6.0.0"
