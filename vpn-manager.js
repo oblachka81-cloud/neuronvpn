@@ -6,7 +6,7 @@ require('dotenv').config();
 const PANEL_CONFIG = {
     baseUrl: process.env.VPN_PANEL_URL, // https://ip:port
     basePath: process.env.VPN_BASE_PATH, // /path.../
-    apiToken: process.env.VPN_API_TOKEN, // <=== ТОКЕН ИЗ ШАГА 1
+    apiToken: process.env.VPN_API_TOKEN, // <=== ТОКЕН
     inboundId: parseInt(process.env.VPN_INBOUND_ID || '1', 10)
 };
 
@@ -18,22 +18,22 @@ if (!PANEL_CONFIG.apiToken) {
 const agent = new https.Agent({ rejectUnauthorized: false });
 
 /**
- * Создание клиента через API Token (без логина!)
+ * Создание клиента через НОВЫЙ API (v3.x)
  */
 async function createClient(email, limitGB = 100, expiryDate) {
     const uuid = crypto.randomUUID();
     
-    // Формируем данные клиента строго по формату 3x-ui
+    // Формируем объект клиента согласно схеме Client из документации
     // Важно: totalGB должен быть в БАЙТАХ
     const bytesLimit = limitGB * 1024 * 1024 * 1024; 
-    const expiryMs = expiryDate.getTime(); 
+    const expirySecs = Math.floor(expiryDate.getTime() / 1000); // Unix timestamp в СЕКУНДАХ
 
-    const clientData = {
+    const clientPayload = {
         id: uuid,
         email: email,
-        remark: `${email}`,
+        comment: `${email} | ${limitGB}GB`, // В новых версиях поле description часто называется comment или remark
         enable: true,
-        expiryTime: expiryMs,
+        expiryTime: expirySecs,
         totalGB: bytesLimit,
         limitIp: 1,
         reset: 0,
@@ -43,19 +43,19 @@ async function createClient(email, limitGB = 100, expiryDate) {
     };
 
     try {
-        console.log(`🔄 [VPN Manager] Создаю клиента ${email} через API Token...`);
+        console.log(`🔄 [VPN Manager] Создаю клиента ${email} через POST /panel/api/clients/add...`);
         
-        // Отправляем запрос сразу с заголовком Authorization
+        // Отправляем запрос на ПРАВИЛЬНЫЙ эндпоинт из документации
         const response = await axios.post(
-            `${PANEL_CONFIG.baseUrl}${PANEL_CONFIG.basePath}panel/api/inbounds/addClient`,
+            `${PANEL_CONFIG.baseUrl}${PANEL_CONFIG.basePath}panel/api/clients/add`,
             {
-                id: PANEL_CONFIG.inboundId,
-                settings: JSON.stringify({ clients: [clientData] })
+                client: clientPayload,       // Объект клиента
+                inboundIds: [PANEL_CONFIG.inboundId] // Массив ID инбаундов, к которым подключаем клиента
             },
             {
                 headers: { 
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${PANEL_CONFIG.apiToken}` // <=== МАГИЯ ЗДЕСЬ
+                    'Authorization': `Bearer ${PANEL_CONFIG.apiToken}`
                 },
                 httpsAgent: agent
             }
