@@ -14,7 +14,8 @@ try {
   execSync('npx prisma generate', { stdio: 'inherit' });
   
   console.log('🔄 2. Синхронизация схемы с базой данных (создание таблиц)...');
-  execSync('npx prisma db push', { stdio: 'inherit' });
+  // Добавили --accept-data-loss, чтобы Prisma принудительно применила изменения и удалила старые таблицы
+  execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' });
   
   console.log('✅ База данных и Prisma полностью готовы!');
 } catch (error) {
