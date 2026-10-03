@@ -4,7 +4,7 @@ require('dotenv').config();
 // === ИМПОРТЫ ДЛЯ СЕРВЕРА ===
 const express = require('express');
 const cors = require('cors');
-const jwt = require('jsonwebtoken'); // <=== ДОБАВИЛИ JWT
+const jwt = require('jsonwebtoken'); 
 // =================================
 
 console.log('🚀 Запуск NEURON VPN...');
@@ -224,6 +224,8 @@ app.get('/api/get-vpn-config', authenticateToken, async (req, res) => {
         }
 
         // 2. Если в панели еще нет клиента для этой подписки — создаем его
+        let finalLink = ""; 
+        
         if (!subscription.panelClientId) {
             console.log(`🔄 Создаем клиента в панели 3x-ui для юзера ${userId}...`);
             
@@ -242,21 +244,39 @@ app.get('/api/get-vpn-config', authenticateToken, async (req, res) => {
                 });
                 
                 console.log(`✅ Клиент создан в панели. UUID: ${result.uuid}`);
+                
+                // Берем ссылку сразу из результата менеджера (она там идеальная с Reality)
+                finalLink = result.link;
             } else {
                 throw new Error('Не удалось создать клиента в панели');
             }
+        } else {
+            // Если клиент уже был создан раньше, но ссылка потерялась (например, после рестарта)
+            // Мы можем пересобрать её вручную из ENV переменных, используя сохраненный UUID
+            
+            const hostPart = process.env.VPN_PANEL_URL.replace(/^https?:\/\//, '').split(':')[0];
+            const uuid = subscription.panelClientId; 
+            
+            // Собираем параметры Reality вручную (копия логики из vpn-manager для надежности)
+            const params = [
+                `security=reality`,
+                `pbk=${process.env.REALITY_PUBLIC_KEY}`,
+                `sid=${process.env.REALITY_SHORT_ID}`,
+                `sni=${process.env.REALITY_SNI}`,
+                `fp=${process.env.REALITY_FINGERPRINT || 'chrome'}`,
+                `type=tcp`,
+                `flow=xtls-rprx-vision`
+            ].join('&');
+            
+            finalLink = `vless://${uuid}@${hostPart}:443?${params}#NEURON_VPN_User_${userId}`;
         }
 
-        // 3. Формируем итоговую ссылку vless://... для отправки клиенту
-        // Берем настройки из env, чтобы не хардкодить IP
-        const hostPart = process.env.VPN_PANEL_URL.replace(/^https?:\/\//, '').split(':')[0];
-        const finalLink = `vless://${subscription.panelClientId}@${hostPart}:443?security=tls&type=tcp&sni=${hostPart}&fp=randomized#NEURON_VPN_User_${userId}`;
-
+        // 3. Отдаем готовую ссылку
         console.log(`🎉 Конфиг сгенерирован для юзера ${userId}`);
 
         res.json({
             status: 'success',
-            config_link: finalLink,
+            config_link: finalLink, // <=== ВОТ ЭТА САМАЯ ЖЕЛЕЗОБЕТОННАЯ ССЫЛКА
             info: {
                 traffic_limit_gb: Number(subscription.trafficLimit),
                 expires_at: subscription.expiresAt.toISOString()
