@@ -1,25 +1,35 @@
 const axios = require('axios');
 const https = require('https');
-const crypto = require('crypto'); // <=== ОБЯЗАТЕЛЬНО ИМПОРТИРУЕМ CRYPTO
+const crypto = require('crypto'); // <=== КРИТИЧЕСКИ ВАЖНО
 require('dotenv').config();
 
 // Конфигурация из .env
 const PANEL_CONFIG = {
-    baseUrl: (process.env.VPN_PANEL_URL || '').replace(/\/$/, ''), // Убираем хвостовой слэш
-    basePath: (process.env.VPN_BASE_PATH || '').replace(/^\/|\/$/g, ''), // Убираем ведущий/хвостовой слэш для контроля
+    baseUrl: (process.env.VPN_PANEL_URL || '').replace(/\/$/, ''),
+    basePath: (process.env.VPN_BASE_PATH || '').replace(/^\/|\/$/g, ''),
     apiToken: process.env.VPN_API_TOKEN,
-    inboundId: parseInt(process.env.VPN_INBOUND_ID || '1', 10)
+    inboundId: parseInt(process.env.VPN_INBOUND_ID || '2', 10), // Дефолт теперь 2
+    
+    // Параметры REALITY для формирования ссылки
+    publicKey: process.env.REALITY_PUBLIC_KEY,
+    shortId: process.env.REALITY_SHORT_ID,
+    sni: process.env.REALITY_SNI,
+    fingerprint: process.env.REALITY_FINGERPRINT || 'chrome',
+    spiderX: process.env.REALITY_SPIDER_X || ''
 };
 
 if (!PANEL_CONFIG.apiToken) {
     throw new Error('❌ [VPN Manager] Не задан VPN_API_TOKEN в .env!');
 }
+if (!PANEL_CONFIG.publicKey) {
+    throw new Error('❌ [VPN Manager] Не задан REALITY_PUBLIC_KEY в .env! Без него ссылка не сработает.');
+}
 
-// Агент для игнорирования ошибок SSL
+// Агент для игнорирования ошибок SSL (самоподписанный сертификат панели)
 const agent = new https.Agent({ rejectUnauthorized: false });
 
 /**
- * Вспомогательная функция для безопасной сборки URL
+ * Вспомогательная функция для безопасной сборки URL API
  */
 function getApiUrl(path) {
     const bp = PANEL_CONFIG.basePath ? `/${PANEL_CONFIG.basePath}` : '';
@@ -31,8 +41,7 @@ async function createClient(email, limitGB = 100, expiryDate) {
     
     // totalGB в байтах
     const bytesLimit = Math.floor(limitGB * 1024 * 1024 * 1024);
-    // expiryTime в миллисекундах (как требует новая версия API часто) или секундах
-    // Студент использовал getTime(), оставим так, если панель ругнется - переключим на /1000
+    // expiryTime в миллисекундах (для совместимости с текущей логикой бота)
     const expiryMs = expiryDate instanceof Date ? expiryDate.getTime() : 0;
 
     // Payload строго по документации v3.x (/clients/add)
@@ -44,18 +53,17 @@ async function createClient(email, limitGB = 100, expiryDate) {
             expiryTime: expiryMs, 
             totalGB: bytesLimit,
             limitIp: 1,
-            flow: "",
-            tgId: 0,
+            flow: "", // Поток задается на уровне инбаунда или в ссылке, здесь оставляем пусто/дефолт
+            tgId: 0,  // ЧИСЛО, а не строка!
             subId: "",
             comment: `NEURON ${email}`,
             reset: 0
         },
-        inboundIds: [PANEL_CONFIG.inboundId]
+        inboundIds: [PANEL_CONFIG.inboundId] // Используем ID=2
     };
 
-    // Правильная сборка адреса: https://ip:port/path/panel/api/clients/add
     const url = getApiUrl('/panel/api/clients/add');
-    console.log(`🔗 [VPN Manager] Создаю клиента: ${url}`);
+    console.log(`🔗 [VPN Manager] Создаю клиента через: ${url}`);
 
     try {
         const response = await axios.post(url, payload, {
@@ -68,22 +76,34 @@ async function createClient(email, limitGB = 100, expiryDate) {
         });
 
         if (response.data?.success) {
-            console.log(`✅ [VPN Manager] Клиент создан: ${email}`);
+            console.log(`✅ [VPN Manager] Клиент успешно создан в панели.`);
 
-            // ВАЖНО: Порт в ссылке должен быть портом INBOUND (обычно 443), а не панели (38215)!
-            // Если ты создавал входящий (Inbound) на другом порту, замени 443 на свой.
+            // --- ГЕНЕРАЦИЯ ССЫЛКИ VLESS + REALITY ---
             const hostPart = PANEL_CONFIG.baseUrl.replace(/^https?:\/\//, '').split(':')[0];
             
-            // Формируем ссылку VLESS
-            const link = `vless://${uuid}@${hostPart}:443?security=tls&type=tcp&sni=${hostPart}&fp=randomized#${encodeURIComponent(email)}`;
+            let params = [];
+            params.push(`security=reality`);
+            params.push(`pbk=${PANEL_CONFIG.publicKey}`);       // Публичный ключ
+            params.push(`sid=${PANEL_CONFIG.shortId}`);         // Short ID
+            params.push(`sni=${PANEL_CONFIG.sni}`);             // SNI (acs.aliexpress.com)
+            params.push(`fp=${PANEL_CONFIG.fingerprint}`);      // Отпечаток браузера (chrome)
+            if (PANEL_CONFIG.spiderX) {
+                params.push(`px=${encodeURIComponent(PANEL_CONFIG.spiderX)}`); // Spider X
+            }
+            params.push(`type=tcp`);                            // Транспорт
+            params.push(`flow=xtls-rprx-vision`);               // Обязательный поток для Vision
+            
+            const queryString = params.join('&');
+            // Порт всегда 443, так как мы его жестко задали при создании инбаунда
+            const link = `vless://${uuid}@${hostPart}:443?${queryString}#${encodeURIComponent(email)}`;
 
             return { success: true, uuid, link };
         } else {
             throw new Error(response.data?.msg || 'Неизвестная ошибка панели');
         }
     } catch (error) {
-        console.error('❌ [VPN Manager] Ошибка создания:', error.response?.status, error.response?.data || error.message);
-        throw error;
+         console.error('❌ [VPN Manager] Ошибка создания:', error.response?.status, error.response?.data || error.message);
+         throw error;
     }
 }
 
